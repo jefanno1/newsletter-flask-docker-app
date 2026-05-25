@@ -1,108 +1,96 @@
 # LLM News Summarizer
 
-An end-to-end news summarization pipeline and Flask dashboard. The project fetches current business news from Google News through SerpAPI, lets an LLM select the most interesting headlines, scrapes supporting articles, generates bilingual summaries, creates Instagram-ready post copy, and stores the final result in MongoDB Atlas.
+A Flask web app that automates a news-content workflow:
 
-The current web version uses Gemini as the LLM provider so the pipeline can run on a free-tier-friendly setup.
+1. Fetch business headlines from Google News through SerpAPI.
+2. Use Gemini to select the most interesting headlines.
+3. Scrape supporting articles with Selenium and BeautifulSoup.
+4. Generate Indonesian and English summaries.
+5. Generate Instagram-ready post copy.
+6. Store the result in MongoDB.
+7. Display the latest generated news items in a dashboard.
 
-## Project Goals
+This repository is designed so another user can clone it, add their own API keys, and run it locally or with Docker.
 
-- Automate the daily process of finding relevant news.
-- Reduce manual reading by summarizing multiple supporting articles per headline.
-- Produce output in both Indonesian and English.
-- Generate short social media copy from the English summary.
-- Store structured results in MongoDB so they can be displayed in a dashboard.
-- Provide a simple web UI to run the pipeline and review the latest generated news items.
+## Features
+
+- Google News headline discovery via SerpAPI.
+- LLM headline selection using Gemini.
+- Supporting article scraping with headless Chrome.
+- Bilingual summaries: Indonesian and English.
+- Instagram title and post generation.
+- MongoDB persistence.
+- Flask dashboard with pipeline status and visible error messages.
+- Docker support for easier Selenium/Chrome setup.
 
 ## Tech Stack
 
-| Area | Technology |
+| Layer | Technology |
 | --- | --- |
-| Backend web app | Flask |
-| News source | Google News via SerpAPI |
-| LLM | Gemini API, default model `gemini-2.5-flash` |
+| Web app | Flask |
+| News API | SerpAPI Google News API |
+| LLM | Gemini API, default `gemini-2.5-flash` |
 | Scraping | Selenium, Chrome, BeautifulSoup |
 | Database | MongoDB Atlas or local MongoDB |
-| Language | Python |
-| Frontend | HTML/Jinja template |
+| Container | Docker, Docker Compose |
 
-## Main Folder Structure
+## Repository Structure
 
 ```text
-Scraping_New/
-  README.md
-  Newsletter_Web/
-    app.py
-    news_pipeline_mongo.py
-    requirements.txt
-    Dockerfile
-    templates/
-      index.html
-      pipeline_status.html
-    static/
-      style.css
+.
+├── app.py
+├── news_pipeline_mongo.py
+├── requirements.txt
+├── Dockerfile
+├── docker-compose.yml
+├── .env.example
+├── .dockerignore
+├── .gitignore
+├── README.md
+├── docs/
+│   └── interview-presentation-guide.md
+└── templates/
+    └── index.html
 ```
 
-Older experimental scripts also exist in `Scraping_New/`, such as standalone query scripts and file-output pipeline versions. The actively used web app is inside `Newsletter_Web/`.
+## Requirements
 
-## Core Files
+You need API keys or services for:
 
-### `Newsletter_Web/app.py`
+- SerpAPI: https://serpapi.com/
+- Gemini API: https://ai.google.dev/
+- MongoDB: MongoDB Atlas or a local MongoDB server
 
-This is the Flask web application.
+For local non-Docker execution, you also need:
 
-Responsibilities:
+- Python 3.11 or newer
+- Google Chrome installed
+- ChromeDriver available to Selenium, or a Selenium version/environment that can locate a matching driver
 
-- Loads environment variables from `.env`.
-- Connects to MongoDB.
-- Displays the latest 20 news documents from the `NewsletterDB.news` collection.
-- Provides a `/run_pipeline` route.
-- Starts the pipeline in a background thread so the browser does not hang.
-- Tracks pipeline status with:
+Docker is recommended because the image installs Chrome and ChromeDriver for you.
 
-```python
-pipeline_status = {"running": False, "last_run": None, "error": None}
+## Environment Setup
+
+Copy the example environment file:
+
+```bash
+cp .env.example .env
 ```
 
-### `Newsletter_Web/news_pipeline_mongo.py`
+On Windows PowerShell:
 
-This is the main pipeline.
+```powershell
+Copy-Item .env.example .env
+```
 
-Responsibilities:
-
-- Fetches Google News headlines through SerpAPI.
-- Uses Gemini to select the top 5 headlines.
-- Fetches supporting links for each selected story.
-- Scrapes each article with Selenium and BeautifulSoup.
-- Combines article text for each headline.
-- Uses Gemini to generate Indonesian and English summaries.
-- Uses Gemini to generate Instagram post text.
-- Inserts the final structured document into MongoDB.
-
-### `Newsletter_Web/templates/index.html`
-
-This is the dashboard page.
-
-It shows:
-
-- Pipeline status.
-- A Run Pipeline link.
-- Pipeline errors, if any.
-- MongoDB connection errors, if any.
-- Latest news items.
-- Indonesian summary.
-- English summary.
-- Instagram title and post text.
-
-## Environment Variables
-
-Create a `.env` file inside `Newsletter_Web/`.
+Edit `.env`:
 
 ```env
-SERPAPI_API_KEY=your_serpapi_key
-GEMINI_API_KEY=your_gemini_key
-MONGO_URI=your_mongodb_connection_string
+SERPAPI_API_KEY=your_serpapi_key_here
+GEMINI_API_KEY=your_gemini_api_key_here
+MONGO_URI=mongodb+srv://user:password@cluster.example.mongodb.net/
 
-# Optional
+# Optional settings
 GEMINI_MODEL=gemini-2.5-flash
 HEADLINE_LIMIT=10
 SUPPORTING_PER_HEADLINE=3
@@ -110,20 +98,58 @@ SCRAPE_WAIT=3
 PORT=5000
 ```
 
-Important:
+Notes:
 
-- Do not commit `.env`.
-- `MONGO_URI` can point to MongoDB Atlas or a local MongoDB instance.
-- `SUPPORTING_PER_HEADLINE=3` is useful for demos because it keeps the pipeline faster.
-- Increasing `SUPPORTING_PER_HEADLINE` improves context quality but makes scraping slower.
+- `.env` is ignored by Git.
+- Do not commit real API keys or database credentials.
+- `SUPPORTING_PER_HEADLINE=3` is good for demos because it keeps the run faster.
+- Increase `SUPPORTING_PER_HEADLINE` if you want richer summaries and do not mind longer scraping time.
 
-## How To Run Locally
+## Run With Docker
 
-From PowerShell:
+Build and start the app:
+
+```bash
+docker compose up --build
+```
+
+Open:
+
+```text
+http://localhost:5000
+```
+
+Stop the app:
+
+```bash
+docker compose down
+```
+
+## Run Locally Without Docker
+
+Create and activate a virtual environment:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+```
+
+On Windows PowerShell:
 
 ```powershell
-cd "D:\zephaniah_I\Project LLM\Project LLM News\Scraping_serpapi\Scraping_New\Newsletter_Web"
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+Install dependencies:
+
+```bash
 pip install -r requirements.txt
+```
+
+Run the app:
+
+```bash
 python app.py
 ```
 
@@ -133,54 +159,65 @@ Open:
 http://localhost:5000
 ```
 
-Then click:
+## How To Use
+
+1. Open the dashboard at `http://localhost:5000`.
+2. Click `Run Pipeline`.
+3. The dashboard will show `Running...`.
+4. Wait for the pipeline to finish.
+5. Refresh the page to see the latest generated news items.
+
+The first run can take several minutes because Selenium loads and scrapes multiple article pages.
+
+## Pipeline Workflow
 
 ```text
-Run Pipeline
-```
-
-## Pipeline Flow
-
-```text
-User clicks Run Pipeline
+Dashboard /run_pipeline route
         |
         v
-Flask route /run_pipeline starts background thread
+Start background thread
         |
         v
-Fetch 10 business headlines from Google News via SerpAPI
+Fetch headlines from SerpAPI
         |
         v
-Gemini selects the top 5 most interesting headlines
+Gemini selects top 5 headlines
         |
         v
 For each selected headline:
-  - Use story_token to fetch supporting article links
-  - Scrape article text with Selenium and BeautifulSoup
-  - Combine scraped text
-  - Ask Gemini for Indonesian and English summaries
-  - Ask Gemini for Instagram-ready post text
-  - Insert result into MongoDB
+  - Fetch supporting links with story_token
+  - Scrape article text with Selenium
+  - Parse paragraphs with BeautifulSoup
+  - Summarize in Indonesian and English with Gemini
+  - Generate Instagram content with Gemini
+  - Insert final document into MongoDB
         |
         v
-Dashboard reads latest documents from MongoDB
+Dashboard displays latest MongoDB documents
 ```
 
-## MongoDB Document Shape
+## MongoDB Output Shape
 
-Each generated news item is stored in MongoDB with a structure similar to this:
+Documents are inserted into:
+
+```text
+Database: NewsletterDB
+Collection: news
+```
+
+Example document:
 
 ```json
 {
   "title": "News headline",
-  "link": "https://source-url.example/article",
-  "source": "Source name",
+  "link": "https://example.com/article",
+  "source": "Publisher",
   "published": "Published date from Google News",
   "story_token": "Google News story token",
   "selected_top5": true,
   "supporting_articles": [
     {
-      "link": "https://supporting-source.example/article",
+      "link": "https://example.com/supporting-article",
       "text": "Scraped article text"
     }
   ],
@@ -189,7 +226,7 @@ Each generated news item is stored in MongoDB with a structure similar to this:
     "en": "English summary"
   },
   "ig_post": {
-    "title": "Short social title",
+    "title": "Short title",
     "ig_post": "Instagram post text"
   },
   "created_at": "datetime"
@@ -200,61 +237,57 @@ Each generated news item is stored in MongoDB with a structure similar to this:
 
 | Route | Method | Purpose |
 | --- | --- | --- |
-| `/` | GET | Shows the dashboard and latest MongoDB news items |
-| `/run_pipeline` | GET | Starts the pipeline in a background thread, then redirects to `/` |
+| `/` | GET | Show dashboard and latest news documents |
+| `/run_pipeline` | GET | Start the pipeline in a background thread |
 
-## Why Gemini Replaced OpenAI
+## Configuration Reference
 
-The original version used OpenAI for headline selection, summarization, and social post generation. During testing, the OpenAI API key hit quota limits. The pipeline was updated to use Gemini through the REST API:
-
-```text
-https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent
-```
-
-This keeps the same project architecture while allowing the demo to run with a different LLM provider.
+| Variable | Required | Default | Description |
+| --- | --- | --- | --- |
+| `SERPAPI_API_KEY` | Yes | None | SerpAPI key for Google News results |
+| `GEMINI_API_KEY` | Yes | None | Gemini API key for LLM calls |
+| `MONGO_URI` | Yes | `mongodb://localhost:27017` | MongoDB connection string |
+| `GEMINI_MODEL` | No | `gemini-2.5-flash` | Gemini model name |
+| `HEADLINE_LIMIT` | No | `10` | Number of headlines fetched before LLM selection |
+| `SUPPORTING_PER_HEADLINE` | No | `3` | Number of supporting articles scraped per selected headline |
+| `SCRAPE_WAIT` | No | `3` | Seconds to wait after loading each article page |
+| `PORT` | No | `5000` | Flask server port |
 
 ## Error Handling
 
-The web app now surfaces failures instead of silently failing.
+The dashboard displays:
 
-Examples:
+- MongoDB connection errors.
+- Pipeline errors.
+- Gemini API errors.
 
-- If MongoDB cannot connect, the dashboard displays a MongoDB error.
-- If the pipeline fails, the dashboard displays a pipeline error.
-- If Gemini returns an API error, the dashboard shows the status code and response details.
-- If the LLM returns invalid JSON, the code falls back where possible.
+This prevents background-thread failures from feeling like nothing happened.
 
 ## Known Limitations
 
-- The pipeline uses a single global in-memory status object, so it is designed for one local user/demo session rather than many concurrent users.
-- `/run_pipeline` is a GET route. A production version should use POST.
-- Selenium scraping can be slow because each article page must load in Chrome.
-- Some publishers block scraping, have paywalls, or render content differently.
-- The app stores full scraped article text in MongoDB, which is useful for debugging but may become large over time.
-- There is no authentication on the dashboard yet.
+- The pipeline status is stored in memory and resets when the app restarts.
+- `/run_pipeline` uses GET for demo simplicity. A production app should use POST.
+- Selenium scraping can be slow and some publishers may block scraping.
+- Duplicate detection is not implemented yet.
+- There is no authentication.
+- The app stores full scraped article text, which can grow the database quickly.
 
-## Possible Improvements
+## Future Improvements
 
-- Add a job queue such as Celery or RQ instead of a raw thread.
-- Add user authentication.
-- Add a progress table showing which headline is currently being processed.
-- Add duplicate detection to avoid inserting the same headline repeatedly.
-- Add source quality scoring.
-- Add retry and backoff for SerpAPI, Gemini, and MongoDB calls.
-- Add a POST endpoint for running the pipeline.
-- Add pagination and search in the dashboard.
-- Store only cleaned article snippets instead of full scraped text.
-- Add tests for the LLM JSON parsing and MongoDB document creation.
+- Use Celery, RQ, or another job queue instead of a raw thread.
+- Add progress tracking per headline.
+- Add deduplication by `story_token`, URL, or headline hash.
+- Add user login.
+- Add pagination and search.
+- Add retries with exponential backoff.
+- Add tests for LLM JSON parsing and MongoDB document creation.
+- Store cleaned article snippets instead of full raw scraped text.
 
-## Interview Summary
+## Interview Notes
 
-This project demonstrates:
+Presentation notes are available in:
 
-- API integration with SerpAPI and Gemini.
-- Browser automation and scraping with Selenium.
-- HTML parsing with BeautifulSoup.
-- Background processing in a Flask app.
-- Document database usage with MongoDB.
-- LLM orchestration for selection, summarization, and content generation.
-- Practical error handling and environment-based configuration.
+```text
+docs/interview-presentation-guide.md
+```
 

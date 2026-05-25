@@ -59,7 +59,7 @@ Flask Dashboard
 File:
 
 ```text
-Newsletter_Web/app.py
+app.py
 ```
 
 What it does:
@@ -79,7 +79,7 @@ The pipeline runs in a background thread because scraping and LLM calls can take
 File:
 
 ```text
-Newsletter_Web/news_pipeline_mongo.py
+news_pipeline_mongo.py
 ```
 
 What it does:
@@ -98,7 +98,7 @@ What it does:
 File:
 
 ```text
-Newsletter_Web/templates/index.html
+templates/index.html
 ```
 
 What it shows:

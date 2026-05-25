@@ -1,13 +1,10 @@
-# Base image
 FROM python:3.11-slim
 
-# Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
     SELENIUM_HEADLESS=1
 
-# Install system dependencies
 RUN apt-get update && apt-get install -y \
     wget \
     curl \
@@ -29,7 +26,6 @@ RUN apt-get update && apt-get install -y \
     --no-install-recommends && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Google Chrome dan ChromeDriver (versi stabil)
 RUN apt-get update && apt-get install -y wget gnupg unzip curl && \
     mkdir -p /etc/apt/keyrings && \
     wget -q -O /etc/apt/keyrings/google-linux-signing-key.gpg https://dl.google.com/linux/linux_signing_key.pub && \
@@ -47,18 +43,14 @@ RUN apt-get update && apt-get install -y wget gnupg unzip curl && \
     chmod +x /usr/local/bin/chromedriver && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-
-# Set working directory
 WORKDIR /app
 
-# Copy requirements.txt first (caching)
 COPY requirements.txt .
 
-# Install Python dependencies
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
-# Copy project files
 COPY . .
 
-# Set default command
+EXPOSE 5000
+
 CMD ["python", "app.py"]
