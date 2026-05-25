@@ -20,6 +20,12 @@
         {% endif %}
     </p>
     <a href="{{ url_for('run_pipeline') }}">Run Pipeline</a>
+    {% if pipeline_status.error %}
+        <p style="color: #b00020;">Pipeline error: {{ pipeline_status.error }}</p>
+    {% endif %}
+    {% if mongo_error %}
+        <p style="color: #b00020;">MongoDB unavailable: {{ mongo_error }}</p>
+    {% endif %}
 
     <hr>
     <h2>Latest News</h2>

@@ -4,12 +4,18 @@ import json
 import time
 import re
 import gc
+import sys
 from datetime import datetime
 from typing import List, Optional
 from dotenv import load_dotenv
+import requests
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
 
 from serpapi import GoogleSearch
-from openai import OpenAI
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service as ChromeService
@@ -23,18 +29,17 @@ from pymongo import MongoClient
 load_dotenv()
 
 SERPAPI_API_KEY = os.getenv("SERPAPI_API_KEY")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 MONGO_DB = "NewsletterDB"
 MONGO_COLLECTION = "news"
 
 TOPIC_TOKEN_BUSINESS = "CAAqJggKIiBDQkFTRWdvSUwyMHZNRGx6TVdZU0FtVnVHZ0pWVXlnQVAB"
 
-HEADLINE_LIMIT = 10
-LLM_SELECT_MODEL = "gpt-5-nano"
-LLM_SUMMARY_MODEL = "gpt-5-nano"
-SUPPORTING_PER_HEADLINE = 5
-SCRAPE_WAIT = 3
+HEADLINE_LIMIT = int(os.getenv("HEADLINE_LIMIT", "10"))
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+SUPPORTING_PER_HEADLINE = int(os.getenv("SUPPORTING_PER_HEADLINE", "3"))
+SCRAPE_WAIT = int(os.getenv("SCRAPE_WAIT", "3"))
 BAD_LABELS = {"top news", "posts on x", "frequently asked questions"}
 
 # =====================
@@ -93,28 +98,65 @@ def fetch_headlines_serpapi(topic_token: str, limit: int = 10):
 # =====================
 # LLM helpers
 # =====================
-def get_openai_client():
-    return OpenAI(api_key=OPENAI_API_KEY)
+def strip_json_fence(raw: str) -> str:
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = raw.strip("`").strip()
+        if raw.lower().startswith("json"):
+            raw = raw[4:].strip()
+    return raw
+
+def ask_gemini(prompt: str, system_instruction: str = "", json_mode: bool = False) -> str:
+    if not GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY is missing from .env")
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+    payload = {
+        "contents": [
+            {
+                "role": "user",
+                "parts": [{"text": prompt}],
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.2,
+        },
+    }
+    if system_instruction:
+        payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}
+    if json_mode:
+        payload["generationConfig"]["response_mime_type"] = "application/json"
+
+    resp = requests.post(
+        url,
+        params={"key": GEMINI_API_KEY},
+        json=payload,
+        timeout=120,
+    )
+    if not resp.ok:
+        try:
+            details = resp.json()
+        except ValueError:
+            details = resp.text
+        raise RuntimeError(f"Gemini API error {resp.status_code}: {details}")
+    data = resp.json()
+    try:
+        return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+    except (KeyError, IndexError) as exc:
+        raise RuntimeError(f"Unexpected Gemini response: {data}") from exc
 
 def ask_llm_select_top5(headlines: List[dict]) -> List[int]:
-    client = get_openai_client()
     prompt = "Here are 10 headlines. Choose 5 most interesting to a general reader. Answer ONLY a JSON object like {\"selected\": [1,2,3,4,5]} with indices (1-based).\n\n"
     for i, h in enumerate(headlines, start=1):
         prompt += f"{i}. {h['Title']}\n"
 
-    resp = client.chat.completions.create(
-        model=LLM_SELECT_MODEL,
-        messages=[
-            {"role": "system", "content": "You are an assistant that selects the most interesting news headlines."},
-            {"role": "user", "content": prompt}
-        ]
+    raw = ask_gemini(
+        prompt,
+        system_instruction="You are an assistant that selects the most interesting news headlines.",
+        json_mode=True,
     )
     print("LLM prompt:\n", prompt)
-    raw = resp.choices[0].message.content.strip()
-    if raw.startswith("```"):
-        raw = raw.strip("`")
-        if raw.lower().startswith("json"):
-            raw = raw[4:].strip()
+    raw = strip_json_fence(raw)
     try:
         sel = json.loads(raw).get("selected", [])
         return [int(x) for x in sel][:5]
@@ -122,25 +164,18 @@ def ask_llm_select_top5(headlines: List[dict]) -> List[int]:
         return list(range(1, min(6, len(headlines)+1)))
 
 def ask_llm_summarize_two_langs(text: str) -> dict:
-    client = get_openai_client()
     prompt = (
         "Ringkas teks berikut dalam 2 bahasa (komprehensif, jelas, agak panjang).\n"
         "Output HARUS valid JSON exactly like:\n"
         '{ "id": "Ringkasan Bahasa Indonesia", "en": "English summary" }\n\n'
         "Teks:\n" + text
     )
-    resp = client.chat.completions.create(
-        model=LLM_SUMMARY_MODEL,
-        messages=[
-            {"role": "system", "content": "You are an assistant that summarizes news articles into Indonesian and English."},
-            {"role": "user", "content": prompt}
-        ]
+    raw = ask_gemini(
+        prompt,
+        system_instruction="You are an assistant that summarizes news articles into Indonesian and English.",
+        json_mode=True,
     )
-    raw = resp.choices[0].message.content.strip()
-    if raw.startswith("```"):
-        raw = raw.strip("`")
-        if raw.lower().startswith("json"):
-            raw = raw[4:].strip()
+    raw = strip_json_fence(raw)
     try:
         j = json.loads(raw)
         return {"id": j.get("id", "").strip(), "en": j.get("en", "").strip()}
@@ -148,23 +183,16 @@ def ask_llm_summarize_two_langs(text: str) -> dict:
         return {"id": raw, "en": ""}
 
 def ask_llm_igpost_from_text(summary_en: str) -> Optional[dict]:
-    client = get_openai_client()
     prompt = (
         "Given the following English summary, produce JSON: {\"title\": \"short title (<=10 words)\", \"ig_post\": \"IG post text (one slide)\"}\n\n"
         f"Summary:\n{summary_en}"
     )
-    resp = client.chat.completions.create(
-        model="gpt-5-nano",
-        messages=[
-            {"role": "system", "content": "You are a social media copywriter."},
-            {"role": "user", "content": prompt}
-        ]
+    raw = ask_gemini(
+        prompt,
+        system_instruction="You are a social media copywriter.",
+        json_mode=True,
     )
-    raw = resp.choices[0].message.content.strip()
-    if raw.startswith("```"):
-        raw = raw.strip("`")
-        if raw.lower().startswith("json"):
-            raw = raw[4:].strip()
+    raw = strip_json_fence(raw)
     try:
         j = json.loads(raw)
         return {"title": j.get("title","").strip(), "ig_post": j.get("ig_post","").strip()}
@@ -195,7 +223,7 @@ def scrape_article_text(driver, url: str, wait_seconds: int = SCRAPE_WAIT) -> st
     try:
         driver.get(url)
         time.sleep(wait_seconds)
-        html = driver.page_source[:200000]  # ambil maksimal 200 KB
+        html = driver.page_source 
         soup = BeautifulSoup(html, "html.parser")
         article = soup.find("article") or soup.find(role="main")
         if article:
@@ -261,8 +289,8 @@ def run_full_pipeline():
                     supporting_articles.append({"link": link, "text": text})
 
         combined_text = "\n".join([a["text"] for a in supporting_articles])
-        if len(combined_text) > 5000:
-            combined_text = combined_text[:5000]
+        if len(combined_text) > 100000:
+            combined_text = combined_text[:100000]
         summaries = ask_llm_summarize_two_langs(combined_text) if combined_text else {"id":"","en":""}
         ig_post = ask_llm_igpost_from_text(summaries.get("en","")) if summaries.get("en") else None
 
